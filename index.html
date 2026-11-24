@@ -35,7 +35,7 @@ canvas{width:100%;display:block;border-radius:14px;background:#0d140d;touch-acti
 'use strict';
 const c=document.getElementById('c'),x=c.getContext('2d');x.direction='ltr';
 const W=390,H=500;c.width=W;c.height=H;
-const N=14,CELL=2,F=430,CAM={x:0,y:12,z:-32};
+const N=14,CELL=2,F=430,CAM={x:0,y:25,z:-50};
 const scoreEl=document.getElementById('score'),bestEl=document.getElementById('best'),msg=document.getElementById('msg');
 let best=+(localStorage.getItem('snake3d_best')||0);bestEl.textContent='שיא: '+best;
 let snake,dir,nextDir,food,score,run,tickMs,lastTick,t;
