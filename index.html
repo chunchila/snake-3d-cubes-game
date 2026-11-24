@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>נחש הקוביות 3D</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font-family:'Segoe UI',Arial,sans-serif;background:#0a0f0a;color:#e5f5e0;min-height:100vh;display:flex;flex-direction:column;align-items:center;overflow:hidden;touch-action:none;user-select:none}
+header{width:100%;max-width:520px;padding:11px 16px 2px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px}
+h1{font-size:20px;color:#a3e635}
+#hud{font-size:12px;background:#ffffff14;padding:6px 10px;border-radius:14px;display:flex;gap:8px;font-weight:700;flex-wrap:wrap}
+#msg{font-size:13.5px;color:#9cba8f;min-height:19px;padding:2px 8px}
+#wrap{width:100%;max-width:520px;padding:0 8px}
+canvas{width:100%;display:block;border-radius:14px;background:#0d140d;touch-action:none}
+#ctl{width:100%;max-width:520px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;padding:8px}
+#ctl button{padding:12px 0;font-size:18px;font-weight:800;border:none;border-radius:12px;background:#3f6212;color:#ecfccb;cursor:pointer}
+#ctl button:active{filter:brightness(1.3)}
+.ov{position:fixed;inset:0;background:#0a0f0ae8;display:flex;align-items:center;justify-content:center;z-index:9;padding:20px}
+.card{background:#16210f;border:2px solid #a3e63555;border-radius:22px;padding:26px 22px;text-align:center;max-width:340px;width:100%}
+.card h2{color:#a3e635;font-size:26px;margin-bottom:10px}
+.card p{color:#d4e8c2;font-size:14px;line-height:1.6;margin-bottom:18px}
+.card button{padding:14px 40px;font-size:17px;font-weight:800;border:none;border-radius:14px;background:linear-gradient(135deg,#a3e635,#4d7c0f);color:#1a2e05;cursor:pointer}
+.hide{display:none!important}
+</style>
+</head>
+<body>
+<header><h1>נחש הקוביות 3D</h1><div id="hud"><span id="score">0</span><span id="best">שיא: 0</span></div></header>
+<div id="msg">גללו או השתמשו בחצים - אספו תפוחים, אל תתנגשו</div>
+<div id="wrap"><canvas id="c"></canvas></div>
+<div id="ctl"><span></span><button id="upB">▲</button><span></span><button id="leftB">◀</button><button id="downB">▼</button><button id="rightB">▶</button></div>
+<div class="ov" id="ovS"><div class="card"><h2>נחש הקוביות 3D</h2><p>הנחש של פעם, הפעם כקוביות בתלת ממד. גללו על המסך או לחצו על החצים כדי לפנות. כל תפוח מאריך וממהיר. הקירות והזנב קטלניים.</p><button id="startBtn">התחל</button></div></div>
+<div class="ov hide" id="ovE"><div class="card"><h2>נגמר!</h2><p id="ovP"></p><button id="againB">שחקו שוב</button></div></div>
+<script>
+'use strict';
+const c=document.getElementById('c'),x=c.getContext('2d');x.direction='ltr';
+const W=390,H=500;c.width=W;c.height=H;
+const N=14,CELL=2,F=430,CAM={x:0,y:12,z:-32};
+const scoreEl=document.getElementById('score'),bestEl=document.getElementById('best'),msg=document.getElementById('msg');
+let best=+(localStorage.getItem('snake3d_best')||0);bestEl.textContent='שיא: '+best;
+let snake,dir,nextDir,food,score,run,tickMs,lastTick,t;
+function proj(px,py,pz){const dz=pz-CAM.z;if(dz<0.5)return null;const s=F/dz;return [W/2+(px-CAM.x)*s,H*0.35-(py-CAM.y)*s,s]}
+function shade(hex,f){const n=parseInt(hex.slice(1),16);const r=Math.min(255,((n>>16)&255)*f),g=Math.min(255,((n>>8)&255)*f),b=Math.min(255,(n&255)*f);return `rgb(${r|0},${g|0},${b|0})`}
+const faces=[];
+function box3(wx,wy,wz,s,col){
+  const h=s/2;
+  faces.push({z:wz-h,pts:[[wx-h,wy+h,wz-h],[wx+h,wy+h,wz-h],[wx+h,wy+h,wz+h],[wx-h,wy+h,wz+h]],col:shade(col,1.18)});
+  faces.push({z:wz-h,pts:[[wx-h,wy-h,wz-h],[wx+h,wy-h,wz-h],[wx+h,wy+h,wz-h],[wx-h,wy+h,wz-h]],col:col});
+  faces.push({z:wz-h,pts:[[wx+h,wy-h,wz-h],[wx+h,wy-h,wz+h],[wx+h,wy+h,wz+h],[wx+h,wy+h,wz-h]],col:shade(col,0.72)});
+}
+function wpos(g){return (g-N/2+0.5)*CELL}
+function reset(){
+  snake=[{gx:7,gz:9},{gx:7,gz:10},{gx:7,gz:11}];
+  dir={x:0,z:-1};nextDir=dir;score=0;tickMs=170;lastTick=0;t=0;
+  placeFood();scoreEl.textContent='0';
+}
+function placeFood(){
+  do{food={gx:Math.floor(Math.random()*N),gz:Math.floor(Math.random()*N)}}
+  while(snake.some(s=>s.gx===food.gx&&s.gz===food.gz));
+}
+function die(){
+  run=false;
+  if(score>best){best=score;localStorage.setItem('snake3d_best',best);bestEl.textContent='שיא: '+best}
+  document.getElementById('ovP').textContent='צברתם '+score+' נקודות. שיא: '+best+'.';
+  document.getElementById('ovE').classList.remove('hide');msg.textContent='שחקו שוב!';
+}
+function step(){
+  dir=nextDir;
+  const h={gx:snake[0].gx+dir.x,gz:snake[0].gz+dir.z};
+  if(h.gx<0||h.gz<0||h.gx>=N||h.gz>=N||snake.some(s=>s.gx===h.gx&&s.gz===h.gz)){die();return}
+  snake.unshift(h);
+  if(h.gx===food.gx&&h.gz===food.gz){
+    score+=10;scoreEl.textContent=score;tickMs=Math.max(75,tickMs-4);placeFood();
+    msg.textContent=score+' נקודות!';
+  }else snake.pop();
+}
+function draw(){
+  x.fillStyle='#0d140d';x.fillRect(0,0,W,H);
+  // floor grid
+  x.strokeStyle='#22c55e22';
+  for(let i=0;i<=N;i++){
+    const w=(i-N/2)*CELL;
+    const a=proj(w,0,-N/2*CELL),b=proj(w,0,N/2*CELL);
+    if(a&&b){x.beginPath();x.moveTo(a[0],a[1]);x.lineTo(b[0],b[1]);x.stroke()}
+    const a2=proj(-N/2*CELL,0,w),b2=proj(N/2*CELL,0,w);
+    if(a2&&b2){x.beginPath();x.moveTo(a2[0],a2[1]);x.lineTo(b2[0],b2[1]);x.stroke()}
+  }
+  // border walls
+  x.strokeStyle='#22c55e55';x.lineWidth=2;
+  const cs=[proj(-N/2*CELL,0,-N/2*CELL),proj(N/2*CELL,0,-N/2*CELL),proj(N/2*CELL,0,N/2*CELL),proj(-N/2*CELL,0,N/2*CELL)];
+  if(cs.every(Boolean)){x.beginPath();x.moveTo(cs[0][0],cs[0][1]);for(let i=1;i<4;i++)x.lineTo(cs[i][0],cs[i][1]);x.closePath();x.stroke()}
+  faces.length=0;
+  // food (pulsing)
+  const pulse=1.3+Math.sin(t*0.15)*0.15;
+  box3(wpos(food.gx),0.9,wpos(food.gz),pulse,'#ef4444');
+  box3(wpos(food.gx),1.9,wpos(food.gz),0.4,'#fca5a5');
+  // snake far-to-near
+  const sorted=[...snake].sort((a,b)=>wpos(b.gz)-wpos(a.gz));
+  for(let i=sorted.length-1;i>=0;i--){
+    const s=sorted[i];const idx=snake.indexOf(s);
+    const col=idx===0?'#a3e635':idx%2?'#22c55e':'#16a34a';
+    box3(wpos(s.gx),0.95,wpos(s.gz),1.85,col);
+  }
+  // head eyes
+  const hd=snake[0];
+  box3(wpos(hd.gx)+dir.x*0.5-dir.z*0.45,1.75,wpos(hd.gz)+dir.z*0.5-dir.x*0.45,0.34,'#ffffff');
+  box3(wpos(hd.gx)+dir.x*0.5+dir.z*0.45,1.75,wpos(hd.gz)+dir.z*0.5+dir.x*0.45,0.34,'#ffffff');
+  faces.sort((a,b)=>b.z-a.z);
+  for(const f of faces){
+    const ps=f.pts.map(p=>proj(p[0],p[1],p[2]));
+    if(ps.some(p=>!p))continue;
+    x.fillStyle=f.col;x.beginPath();x.moveTo(ps[0][0],ps[0][1]);
+    for(let i=1;i<4;i++)x.lineTo(ps[i][0],ps[i][1]);
+    x.closePath();x.fill();
+  }
+}
+function loop(ts){
+  if(!run)return;t++;
+  if(ts-lastTick>tickMs){lastTick=ts;step();if(!run)return}
+  draw();requestAnimationFrame(loop);
+}
+function turn(dx,dz){if(dx===-dir.x&&dz===-dir.z)return;nextDir={x:dx,z:dz}}
+function start(){document.getElementById('ovS').classList.add('hide');document.getElementById('ovE').classList.add('hide');reset();msg.textContent='גללו או השתמשו בחצים';run=true;lastTick=performance.now();requestAnimationFrame(loop)}
+document.getElementById('upB').onclick=()=>turn(0,-1);
+document.getElementById('downB').onclick=()=>turn(0,1);
+document.getElementById('leftB').onclick=()=>turn(-1,0);
+document.getElementById('rightB').onclick=()=>turn(1,0);
+let tsx=0,tsy=0;
+c.addEventListener('touchstart',e=>{tsx=e.changedTouches[0].clientX;tsy=e.changedTouches[0].clientY},{passive:true});
+c.addEventListener('touchend',e=>{
+  const dx=e.changedTouches[0].clientX-tsx,dy=e.changedTouches[0].clientY-tsy;
+  if(Math.abs(dx)<24&&Math.abs(dy)<24)return;
+  if(Math.abs(dx)>Math.abs(dy))turn(dx>0?1:-1,0);else turn(0,dy>0?1:-1);
+},{passive:true});
+document.addEventListener('keydown',e=>{const k=e.key;
+  if(k==='ArrowUp')turn(0,-1);if(k==='ArrowDown')turn(0,1);if(k==='ArrowLeft')turn(-1,0);if(k==='ArrowRight')turn(1,0)});
+document.getElementById('startBtn').onclick=start;
+document.getElementById('againB').onclick=start;
+reset();draw();
+</script>
+</body>
+</html>
